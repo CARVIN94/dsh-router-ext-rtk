@@ -1,8 +1,10 @@
 /**
  * RTK (Rust Token Killer) 扩展器 —— 只负责「改写一条命令」+「报自己是否可用」。
  *
- * 开关状态**不归本插件管**:核心持久化(`<dataDir>/ext.json`)并裁决是否开启,
- * 插件是被调用方。所以这里没有 `setEnabled`、没有状态文件。
+ * 开关状态**不归本插件管**:核心持久化(`<dataDir>/ext.json`)并代存,插件经
+ * `router.extStore` service 读,不自己 file IO、没有状态文件。
+ *
+ * 拦截/裁决/短路也不归这里 —— 见 `intercept.ts`(本插件自己挂 `tools/execute`)。
  *
  * 真实代理语义:对每条 bash 命令调 `rtk rewrite "<cmd>"`,按 rtk 的退出码协议
  * 解读。注意 rtk 的权限默认是 Ask(least-privilege),几乎没有命令会稳定落到
@@ -33,7 +35,14 @@ import { execFileSync } from 'node:child_process'
 import { accessSync, constants } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import type { ExtState, RewriteResult } from './contract.ts'
+import type { ExtState } from './contract.ts'
+
+/**
+ * 一次改写的结果:改写后的命令,或 `{ rewritten: null }` 表示原样执行。
+ *
+ * 本插件私有(不在 `router.ext` 契约里)—— 怎么改命令是插件的实现细节,核心不感知。
+ */
+export type RewriteResult = { rewritten: string } | { rewritten: null }
 
 /** rtk rewrite 退出码(与 rtk hooks/claude 一致)。 */
 const RTK_EXIT_ALLOW = 0
@@ -135,7 +144,8 @@ export function tryRewrite(command: string, bin?: string): RewriteResult {
 /**
  * 组装 ext-rtk 的扩展器实例(注册进 router.ext 表)。
  *
- * 注意:不再接收 stateFile —— 开关归核心存,插件无状态(除 rtk 探活缓存)。
+ * 注意:不接收 stateFile —— 开关归核心存,插件无状态(除 rtk 探活缓存)。
+ * 契约里没有 `rewrite`:核心只认声明 + getState,改命令是本插件自己拦截时用的。
  */
 export function createRtkExt(envBin?: string) {
   // 启动即自检:探测 rtk 是否可用(缓存到 probe),让核心初次 getState 就有 ready
@@ -145,7 +155,6 @@ export function createRtkExt(envBin?: string) {
     id: 'rtk',
     name: 'RTK',
     description: 'bash 命令输出压缩,削减发给 LLM 的 60–90% bash 输出(需本机装 rtk)',
-    rewrite: (command: string): RewriteResult => tryRewrite(command, envBin),
     getState: (): ExtState => {
       const ready = rtkReady()
       return {

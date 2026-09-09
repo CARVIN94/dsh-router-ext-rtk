@@ -19,7 +19,7 @@
 真实代理:把 agent 每次 bash 工具调用改写成 `rtk <cmd>`(如 `git status` →
 `rtk git status`),削减发给 LLM 的 60–90% bash 输出。
 
-单独装它没用——它只是向核心注册一个扩展器,拦截、开关、面板都在核心里。
+单独装它没用——核心提供**面板与开关存储**,本插件提供**改写与拦截**。
 
 ## 快速安装
 
@@ -64,7 +64,7 @@ rtk gain        # 应显示 token 节省统计(不是 command not found)
 | 降级安全 | rtk 缺失 / 无等价改写 / spawn 失败 → 命令原样执行,**绝不报错**。 |
 | 只拦 bash | 其他工具(含 `run_code` 体内自起的子进程)不动。 |
 | 开关自检 | 启动时探测 rtk;不可用时核心拒绝开启并给出问题描述。 |
-| 开关持久化 | 状态存核心的 `<profile>/data/ext.json`,默认关(**本插件不存**)。 |
+| 开关持久化 | 状态存核心的 `<profile>/data/ext.json`,默认关(**插件经 `router.extStore` 读写,不自己存**)。 |
 
 > 实测:`ls` 走代理后输出变成 rtk 树形格式(带文件大小与 `... (N filtered)`),
 > `rtk gain` 报 3 条命令省 280 tokens(61.9%)。
@@ -77,18 +77,35 @@ rtk gain        # 应显示 token 节省统计(不是 command not found)
 
 ## 与核心的分工
 
-本插件**无状态**,只管**怎么改写一条命令** + **自己是否可用**:调 `rtk rewrite`、
-解释退出码、探测 rtk。
+核心 = **管理面**,本插件 = **执行面**(2026-09 重构:拦截与裁决从核心归还插件,
+核心只在一个消费者时代挂是纯亏损)。
 
-开关**不归本插件管**:核心持久化(`<dataDir>/ext.json`)并裁决是否开启,
-本插件是被调用方。
+核心负责:持有 `router.ext` 注册表(发现)、渲染面板与 `/router/api/ext`(展示)、
+把开关与插件数据落盘 `<dataDir>/ext.json`(`router.extStore` service)、按
+`getState().ready` 裁决能否开启(不可用时拒 409、面板开关禁开)。
 
-**拦截与裁决全在核心**(`router.ext` + `tools/execute`):
+本插件负责:**自己挂 `tools/execute` 拦截 bash**、按「核心存的 `enabled` + 自己报的
+`ready`」裁决、命中则用改写后的命令短路执行;`rtk rewrite` 退出码解读与探活也在这里。
 
-- 核心持有 `router.ext` 空表,本插件往里注册 `rtk` 扩展器
-- 核心在 `tools/execute` 拦截 bash 调用,把命令交给表里 **已开启且 ready** 的扩展器
-- 命中则短路执行改写后的命令;未命中走原样
-- 核心按 `getState().ready` 裁决能否开启(不可用时拒 409)
+本插件**无状态**:开关与数据都经 `router.extStore` 读写(`isEnabled` / `readData`),
+不自己 file IO、没有数据目录。
+
+```
+src/
+  index.ts       插件入口(host 半,注册 rtk 扩展器 + 挂拦截)
+  intercept.ts   拦截实现(挂 tools/execute、裁决、短路)—— 无状态
+  rtk.ts         RTK 扩展器实现(rewrite 退出码解读、rtk 定位/探活)—— 无状态
+  contract.ts    router.ext 契约副本(自含,与 dsh-router 契约同步)
+  *.test.ts      测试
+cordis.patch.yml  bundle patch,把插件插入 DSH cordis bundle stack
+```
+
+> ponytail: 天花板 —— 本插件自己挂监听,多扩展插件各自挂时**顺序不可控**。目前只有
+> rtk 一家,无所谓;第二家出现时要收敛(升级路径:核心暴露顺序委派的共享工具方法,
+> 而不是收回拦截)。
+>
+> **头号坑**:`tools.get('bash', exec.agent)` 的 agent scope 不能省 —— 不带只查全局
+> 视图,查不到 → 静默走原样、从不改写、不报错。已在 `intercept.ts` 文件头 + 测试锁定。
 
 完整契约见 [dsh-router 的 `docs/ext.md`](https://github.com/CARVIN94/dsh-router/blob/main/docs/ext.md)。
 
@@ -105,23 +122,6 @@ RTK 权限默认 least-privilege,**几乎没有命令会落到 Allow(0)**——�
 | 2 | Deny 规则 | 放行(不做阻断) |
 | 3 | Ask,有等价改写但默认要人工确认 | **采用 stdout**——用户已授权 |
 | — | spawn 失败 / 超时(2s) | 放行 |
-
-## 架构
-
-通过 cordis service `router.ext` 的**共享聚合表**向 dsh-router 注册 `rtk` 扩展器
-(cordis 每个 service name 只允许一个插件 `provide`,本插件 `inject` 等核心先提供该表
-后追加并广播 `internal/service`,与加载顺序无关)。
-
-```
-src/
-  index.ts      插件入口(host 半,经 cordis service router.ext 注册 rtk 扩展器)
-  rtk.ts        RTK 扩展器实现(rewrite 退出码解读、rtk 定位/探活)—— 无状态
-  contract.ts   router.ext 契约副本(自含,与 dsh-router 契约同步)
-  rtk.test.ts   测试
-cordis.patch.yml  bundle patch,把插件插入 DSH cordis bundle stack
-```
-
-> 没有 `data-dir.ts`:开关由 dsh-router 核心存,插件不需要数据目录。
 
 ## 开发
 
