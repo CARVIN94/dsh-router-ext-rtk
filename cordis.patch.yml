@@ -1,0 +1,10 @@
+# dsh-router-ext-rtk bundle patch
+#
+# Mounts dsh-router-ext-rtk into the DSH cordis bundle stack. This plugin
+# provides the `router.ext` cordis service (host half) so dsh-router can
+# delegate bash tool calls to the RTK command rewriter. dsh-router holds the
+# `router.ext` aggregate table and defers via ctx.inject, so order vs
+# dsh-router doesn't matter.
+- insert:
+    - id: dsh-router-ext-rtk
+      name: 'dsh-router-ext-rtk'
