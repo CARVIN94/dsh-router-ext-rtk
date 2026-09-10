@@ -1,6 +1,6 @@
 {
   "name": "dsh-router-ext-rtk",
-  "version": "0.3.12",
+  "version": "0.3.13",
   "description": "DSH plugin: RTK (Rust Token Killer) extension for dsh-router. Registers a command-rewrite ext via the router.ext cordis service so dsh-router ships every bash tool call through `rtk rewrite`, cutting 60-90% of LLM-bound bash output.",
   "repository": {
     "type": "git",
