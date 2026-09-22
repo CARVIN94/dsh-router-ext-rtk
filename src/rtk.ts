@@ -36,6 +36,7 @@ import { accessSync, constants } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import type { ExtState } from './contract.ts'
+import { RTK_LOGO_URL } from './rtk-logo.ts'
 
 /**
  * 一次改写的结果:改写后的命令,或 `{ rewritten: null }` 表示原样执行。
@@ -155,6 +156,7 @@ export function createRtkExt(envBin?: string) {
     id: 'rtk',
     name: 'RTK',
     description: 'bash 命令输出压缩,削减发给 LLM 的 60–90% bash 输出(需本机装 rtk)',
+    icon: RTK_LOGO_URL,
     getState: (): ExtState => {
       const ready = rtkReady()
       return {

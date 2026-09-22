@@ -37,6 +37,8 @@ export interface RouterExt {
   readonly name: string
   /** 面板副标题说明。 */
   readonly description?: string
+  /** 卡片/详情图标的 logo URL（可选；缺省用默认图标）。 */
+  readonly icon?: string
   /** 当前运行时状态（ready + 不就绪时的说明）。 */
   getState(): ExtState
   /** 卸载清理（表删除时由 dsh-router 调用，可选）。 */
@@ -48,6 +50,8 @@ export interface ExtInfo {
   id: string
   name: string
   description?: string
+  /** 卡片/详情图标 logo URL（可选）。 */
+  icon?: string
   /** 核心持久化的开关（默认关）。 */
   enabled: boolean
   /** 插件报的运行时就绪状态。 */
